@@ -2,6 +2,7 @@
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as url from 'node:url'
+import { createRequire } from 'node:module'
 import { rollup } from 'rollup'
 import virtual from '@rollup/plugin-virtual'
 import MemoryFS from 'memory-fs'
@@ -9,6 +10,8 @@ import webpack from 'webpack'
 import * as esbuild from 'esbuild'
 import { Parcel } from '@parcel/core'
 import * as acorn from 'acorn'
+
+const require = createRequire(import.meta.url)
 
 const bundlers = {
   async Rollup(file) {
@@ -68,7 +71,7 @@ const bundlers = {
 
     const bundler = new Parcel({
       entries: file,
-      defaultConfig: '@parcel/config-default',
+      defaultConfig: require.resolve('@parcel/config-default'),
       mode: 'production',
       defaultTargetOptions: {
         engines: {
@@ -88,7 +91,7 @@ const bundlers = {
     const output = path.resolve(distDir, path.basename(file))
     const code = fs.readFileSync(output, 'utf-8')
     fs.rmSync(distDir, { recursive: true, force: true })
-    fs.rmSync(path.resolve(__dirname, '.parcel-cache'), { recursive: true, force: true })
+    fs.rmSync(path.resolve(process.cwd(), '.parcel-cache'), { recursive: true, force: true })
 
     return code
   },
