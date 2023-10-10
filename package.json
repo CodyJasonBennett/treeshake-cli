@@ -18,11 +18,14 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-		"treeshake": "index.js"
-	},
+    "treeshake": "index.js"
+  },
   "dependencies": {
+    "@parcel/config-default": "^2.9.3",
+    "@parcel/core": "^2.9.3",
     "@rollup/plugin-virtual": "^3.0.2",
     "acorn": "^8.10.0",
+    "esbuild": "^0.19.4",
     "memory-fs": "^0.5.0",
     "rollup": "^4.0.2",
     "webpack": "^5.88.2"

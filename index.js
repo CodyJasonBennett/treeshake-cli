@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 import * as path from 'node:path'
-import MemoryFS from 'memory-fs'
+import * as fs from 'node:fs'
+import * as url from 'node:url'
 import { rollup } from 'rollup'
-import webpack from 'webpack'
-import { parse } from 'acorn'
 import virtual from '@rollup/plugin-virtual'
+import MemoryFS from 'memory-fs'
+import webpack from 'webpack'
+import * as esbuild from 'esbuild'
+import { Parcel } from '@parcel/core'
+import * as acorn from 'acorn'
 
 const bundlers = {
   async Rollup(file) {
@@ -47,7 +51,47 @@ const bundlers = {
     })
 
     return code
-  }
+  },
+  async ESBuild(file) {
+    const { code } = await esbuild.transform(`import ${JSON.stringify(file)}`, {
+      sourcemap: false,
+      target: 'esnext',
+      minify: true,
+      treeShaking: true,
+    })
+
+    return code
+  },
+  async Parcel(file) {
+    const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
+    const distDir = path.resolve(__dirname, 'parcel-dist')
+
+    const bundler = new Parcel({
+      entries: file,
+      defaultConfig: '@parcel/config-default',
+      mode: 'production',
+      defaultTargetOptions: {
+        engines: {
+          browsers: ['last 1 Chrome version'],
+        },
+        distDir,
+        sourceMaps: false,
+        includeNodeModules: false,
+      },
+      logLevel: 'error',
+    })
+
+    await bundler.run()
+
+    // TODO: use @parcel/fs when workerpool works.
+    // https://parceljs.org/features/parcel-api/#file-system
+    const output = path.resolve(distDir, path.basename(file))
+    const code = fs.readFileSync(output, 'utf-8')
+    fs.rmSync(distDir, { recursive: true, force: true })
+    fs.rmSync(path.resolve(__dirname, '.parcel-cache'), { recursive: true, force: true })
+
+    return code
+  },
 }
 
 try {
@@ -58,7 +102,7 @@ try {
     const compile = bundlers[bundler]
     const code = await compile(file)
 
-    const ast = parse(code, { ecmaVersion: 'latest', sourceType: 'module' })
+    const ast = acorn.parse(code, { ecmaVersion: 'latest', sourceType: 'module' })
 
     for (const node of ast.body) {
       if (node.type !== 'ImportDeclaration') {
