@@ -21,8 +21,6 @@
     "treeshake": "index.js"
   },
   "dependencies": {
-    "@parcel/config-default": "^2.9.3",
-    "@parcel/core": "^2.9.3",
     "@rollup/plugin-virtual": "^3.0.2",
     "acorn": "^8.10.0",
     "esbuild": "^0.19.4",

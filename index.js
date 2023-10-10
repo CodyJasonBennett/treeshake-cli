@@ -1,17 +1,11 @@
 #!/usr/bin/env node
 import * as path from 'node:path'
-import * as fs from 'node:fs'
-import * as url from 'node:url'
-import { createRequire } from 'node:module'
 import { rollup } from 'rollup'
 import virtual from '@rollup/plugin-virtual'
 import MemoryFS from 'memory-fs'
 import webpack from 'webpack'
 import * as esbuild from 'esbuild'
-import { Parcel } from '@parcel/core'
 import * as acorn from 'acorn'
-
-const require = createRequire(import.meta.url)
 
 const bundlers = {
   async Rollup(file) {
@@ -62,36 +56,6 @@ const bundlers = {
       minify: true,
       treeShaking: true,
     })
-
-    return code
-  },
-  async Parcel(file) {
-    const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
-    const distDir = path.resolve(__dirname, 'parcel-dist')
-
-    const bundler = new Parcel({
-      entries: file,
-      defaultConfig: require.resolve('@parcel/config-default'),
-      mode: 'production',
-      defaultTargetOptions: {
-        engines: {
-          browsers: ['last 1 Chrome version'],
-        },
-        distDir,
-        sourceMaps: false,
-        includeNodeModules: false,
-      },
-      logLevel: 'error',
-    })
-
-    await bundler.run()
-
-    // TODO: use @parcel/fs when workerpool works.
-    // https://parceljs.org/features/parcel-api/#file-system
-    const output = path.resolve(distDir, path.basename(file))
-    const code = fs.readFileSync(output, 'utf-8')
-    fs.rmSync(distDir, { recursive: true, force: true })
-    fs.rmSync(path.resolve(process.cwd(), '.parcel-cache'), { recursive: true, force: true })
 
     return code
   },
