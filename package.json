@@ -1,0 +1,30 @@
+{
+  "name": "treeshake-cli",
+  "version": "0.0.1",
+  "description": "Tests tree-shaking with common bundlers.",
+  "keywords": [
+    "rollup",
+    "webpack",
+    "bundlers",
+    "modules",
+    "esm",
+    "treeshaking",
+    "library",
+    "package"
+  ],
+  "author": "Cody Bennett (https://github.com/CodyJasonBennett)",
+  "homepage": "https://github.com/CodyJasonBennett/treeshake-cli",
+  "repository": "https://github.com/CodyJasonBennett/treeshake-cli",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+		"treeshake": "index.js"
+	},
+  "dependencies": {
+    "@rollup/plugin-virtual": "^3.0.2",
+    "acorn": "^8.10.0",
+    "memory-fs": "^0.5.0",
+    "rollup": "^4.0.2",
+    "webpack": "^5.88.2"
+  }
+}
