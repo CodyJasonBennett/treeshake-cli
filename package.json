@@ -1,6 +1,6 @@
 {
   "name": "treeshake-cli",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Tests tree-shaking with common bundlers.",
   "keywords": [
     "rollup",
