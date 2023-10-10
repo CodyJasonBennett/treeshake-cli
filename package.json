@@ -1,16 +1,15 @@
 {
   "name": "treeshake-cli",
-  "version": "0.0.3",
-  "description": "Tests tree-shaking with common bundlers.",
+  "version": "0.1.0",
+  "description": "Tests tree-shaking with Rollup, Webpack, and ESBuild.",
   "keywords": [
     "rollup",
     "webpack",
+    "esbuild",
     "bundlers",
     "modules",
     "esm",
-    "treeshaking",
-    "library",
-    "package"
+    "treeshaking"
   ],
   "author": "Cody Bennett (https://github.com/CodyJasonBennett)",
   "homepage": "https://github.com/CodyJasonBennett/treeshake-cli",
