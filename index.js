@@ -62,6 +62,127 @@ const bundlers = {
   },
 }
 
+const builtins = [
+  'Array',
+  'Array.isArray',
+  'ArrayBuffer',
+  'ArrayBuffer.isView',
+  'Boolean',
+  'DataView',
+  'Date',
+  'Date.UTC',
+  'Date.now',
+  'Date.parse',
+  'Error',
+  'EvalError',
+  'Float32Array',
+  'Float64Array',
+  'Function',
+  'Int16Array',
+  'Int32Array',
+  'Int8Array',
+  'InternalError',
+  'Intl.Collator',
+  'Intl.Collator.supportedLocalesOf',
+  'Intl.DateTimeFormat',
+  'Intl.DateTimeFormat.supportedLocalesOf',
+  'Intl.NumberFormat',
+  'Intl.NumberFormat.supportedLocalesOf',
+  'JSON.parse',
+  'JSON.stringify',
+  'Map',
+  'Math.abs',
+  'Math.acos',
+  'Math.acosh',
+  'Math.asin',
+  'Math.asinh',
+  'Math.atan',
+  'Math.atan2',
+  'Math.atanh',
+  'Math.cbrt',
+  'Math.ceil',
+  'Math.clz32',
+  'Math.cos',
+  'Math.cosh',
+  'Math.exp',
+  'Math.expm1',
+  'Math.floor',
+  'Math.fround',
+  'Math.hypot',
+  'Math.imul',
+  'Math.log',
+  'Math.log10',
+  'Math.log1p',
+  'Math.log2',
+  'Math.max',
+  'Math.min',
+  'Math.pow',
+  'Math.random',
+  'Math.round',
+  'Math.sign',
+  'Math.sin',
+  'Math.sinh',
+  'Math.sqrt',
+  'Math.tan',
+  'Math.tanh',
+  'Math.trunc',
+  'Number',
+  'Number.isFinite',
+  'Number.isInteger',
+  'Number.isNaN',
+  'Number.isSafeInteger',
+  'Number.parseFloat',
+  'Number.parseInt',
+  'Object',
+  'Object.create',
+  'Object.getNotifier',
+  'Object.getOwn',
+  'Object.getOwnPropertyDescriptor',
+  'Object.getOwnPropertyNames',
+  'Object.getOwnPropertySymbols',
+  'Object.getPrototypeOf',
+  'Object.is',
+  'Object.isExtensible',
+  'Object.isFrozen',
+  'Object.isSealed',
+  'Object.keys',
+  'Promise',
+  'Promise.all',
+  'Promise.race',
+  'Promise.reject',
+  'Promise.resolve',
+  'RangeError',
+  'ReferenceError',
+  'RegExp',
+  'Set',
+  'String',
+  'String.fromCharCode',
+  'String.fromCodePoint',
+  'String.raw',
+  'Symbol',
+  'Symbol.for',
+  'Symbol.keyFor',
+  'SyntaxError',
+  'TypeError',
+  'URIError',
+  'Uint16Array',
+  'Uint32Array',
+  'Uint8Array',
+  'Uint8ClampedArray',
+  'WeakMap',
+  'WeakSet',
+  'decodeURI',
+  'decodeURIComponent',
+  'encodeURI',
+  'encodeURIComponent',
+  'escape',
+  'isFinite',
+  'isNaN',
+  'parseFloat',
+  'parseInt',
+  'unescape',
+]
+
 function filterEffects(node, nodes = []) {
   if (node.type === 'Block' && (node.value.trim() === '@__PURE__' || node.value.trim() === '#__PURE__')) {
     nodes.push(node)
@@ -98,7 +219,62 @@ function filterEffects(node, nodes = []) {
   }
 }
 
-const lineNumbers = (source, offset = 1) => source.replace(/^/gm, () => `${offset++}:`)
+const lineNumbers = (source, offset = 1) => source.replace(/^/gm, () => `  ${offset++}:`)
+
+async function lint(code) {
+  const result = await esbuild.transform(code, {
+    sourcemap: false,
+    target: 'esnext',
+    minify: false,
+    treeShaking: false,
+  })
+
+  const comments = []
+  const ast = acorn.parse(result.code, {
+    ecmaVersion: 'latest',
+    sourceType: 'module',
+    onComment: comments,
+    locations: true,
+  })
+
+  let nodes = []
+  for (const node of ast.body.concat(comments)) {
+    filterEffects(node, nodes)
+  }
+  nodes = nodes.sort((a, b) => a.start - b.start)
+
+  const lines = lineNumbers(result.code).split('\n')
+  const errors = []
+
+  let annotation = false
+
+  for (const node of nodes) {
+    let error = null
+
+    if (node.type === 'CallExpression' || node.type === 'NewExpression') {
+      const name = node.callee.name || `${node.callee.object.name}.${node.callee.property.name}`
+      const type = node.type === 'CallExpression' ? 'function' : 'class'
+      const pure = annotation || builtins.includes(name)
+      if (!pure && !node.hasValue) {
+        error = `Top-level ${type} invocations must have a value or they will be discarded!`
+      } else if (!pure) {
+        error = `Top-level ${type} invocations must be annotated with /* @__PURE__ */!`
+      }
+    } else if (node.type === 'MemberExpression') {
+      error = 'Top-level member expressions may call expressive code! Prefer destructuring.'
+    }
+
+    if (error) {
+      const { line, column } = node.loc.start
+      lines[line - 1] = '>' + lines[line - 1].slice(1)
+      errors.push(`${line}:${column} ${error}`)
+    }
+
+    annotation = node.type === 'Block'
+  }
+
+  return { code: lines.join('\n'), errors }
+}
 
 try {
   const input = process.argv[2]
@@ -112,52 +288,9 @@ try {
 
     for (const node of ast.body) {
       if (node.type !== 'ImportDeclaration') {
-        const result = await esbuild.transform(fs.readFileSync(file, 'utf-8'), {
-          sourcemap: false,
-          target: 'esnext',
-          minify: false,
-          treeShaking: false,
-        })
+        const { code, errors } = await lint(fs.readFileSync(file, 'utf-8'))
 
-        const comments = []
-        const ast = acorn.parse(result.code, {
-          ecmaVersion: 'latest',
-          sourceType: 'module',
-          onComment: comments,
-          locations: true,
-        })
-
-        let nodes = []
-        for (const node of ast.body.concat(comments)) {
-          filterEffects(node, nodes)
-        }
-        nodes = nodes.sort((a, b) => a.start - b.start)
-
-        const lines = lineNumbers(result.code).split('\n').map(line => '  ' + line)
-        const errors = []
-
-        let annotation = false
-
-        for (const node of nodes) {
-          let error = null
-
-          if (!annotation && (node.type === 'CallExpression' || node.type === 'NewExpression')) {
-            const type = node.type === 'CallExpression' ? 'function' : 'class'
-            error = `Top-level ${type} invocations must be annotated with /* @__PURE__ */!`
-          } else if (node.type === 'MemberExpression') {
-            error = 'Top-level member expressions may call expressive code! Prefer destructuring.'
-          }
-
-          if (error) {
-            const { line, column } = node.loc.start
-            lines[line - 1] = '>' + lines[line - 1].slice(1)
-            errors.push(`${line}:${column} ${error}`)
-          }
-
-          annotation = node.type === 'Block'
-        }
-
-        console.log(lines.join('\n'))
+        console.log(code)
         for (const error of errors) {
           console.error(error)
         }
