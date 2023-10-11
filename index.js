@@ -62,17 +62,10 @@ const bundlers = {
   },
 }
 
-let i = -1
-let annotation = -1
-
 function filterEffects(node, nodes = []) {
-  i++
-
   if (node.type === 'Block' && (node.value.trim() === '@__PURE__' || node.value.trim() === '#__PURE__')) {
-    annotation = i
+    nodes.push(node)
   } else if (node.type === 'CallExpression' || node.type === 'NewExpression') {
-    node.hasAnnotation = annotation !== -1 && annotation === i - 1
-
     nodes.push(node)
     for (const argument of node.arguments) {
       filterEffects(argument, nodes)
@@ -105,6 +98,8 @@ function filterEffects(node, nodes = []) {
   }
 }
 
+const lineNumbers = (source, offset = 1) => source.replace(/^/gm, () => `${offset++}:`)
+
 try {
   const input = process.argv[2]
   const file = path.resolve(input)
@@ -117,8 +112,6 @@ try {
 
     for (const node of ast.body) {
       if (node.type !== 'ImportDeclaration') {
-        console.log(code)
-
         const result = await esbuild.transform(fs.readFileSync(file, 'utf-8'), {
           sourcemap: false,
           target: 'esnext',
@@ -130,22 +123,43 @@ try {
         const ast = acorn.parse(result.code, {
           ecmaVersion: 'latest',
           sourceType: 'module',
-          onComment: comments
+          onComment: comments,
+          locations: true,
         })
 
-        const body = ast.body.concat(comments).sort((a, b) => a.start - b.start)
-        const nodes = []
-        for (const node of body) {
+        let nodes = []
+        for (const node of ast.body.concat(comments)) {
           filterEffects(node, nodes)
         }
+        nodes = nodes.sort((a, b) => a.start - b.start)
+
+        const lines = lineNumbers(result.code).split('\n').map(line => '  ' + line)
+        const errors = []
+
+        let annotation = false
 
         for (const node of nodes) {
-          if (!node.hasAnnotation && (node.type === 'CallExpression' || node.type === 'NewExpression')) {
+          let error = null
+
+          if (!annotation && (node.type === 'CallExpression' || node.type === 'NewExpression')) {
             const type = node.type === 'CallExpression' ? 'function' : 'class'
-            console.error(`Top-level ${type} invocations must be annotated with /* @__PURE__ */!`)
+            error = `Top-level ${type} invocations must be annotated with /* @__PURE__ */!`
           } else if (node.type === 'MemberExpression') {
-            console.error('Top-level member expressions may call expressive code! Prefer destructuring.')
+            error = 'Top-level member expressions may call expressive code! Prefer destructuring.'
           }
+
+          if (error) {
+            const { line, column } = node.loc.start
+            lines[line - 1] = '>' + lines[line - 1].slice(1)
+            errors.push(`${line}:${column} ${error}`)
+          }
+
+          annotation = node.type === 'Block'
+        }
+
+        console.log(lines.join('\n'))
+        for (const error of errors) {
+          console.error(error)
         }
 
         throw `Couldn't tree-shake ${input} with ${bundler}!`
