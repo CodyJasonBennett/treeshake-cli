@@ -62,6 +62,9 @@ const bundlers = {
   },
 }
 
+const lineNumbers = (source, offset = 1, lines = source.split('\n').length) =>
+  source.replace(/^/gm, () => `${offset++}:`.padStart(lines.toString().length + 3))
+
 const hasIdent = (node) => node.type === 'AssignmentExpression' || node.type === 'PropertyDefinition'
 
 function hasScope(node) {
@@ -80,23 +83,6 @@ function hasScope(node) {
   }
 }
 
-const nodes = []
-
-function filterEffects(node, _state, ancestors) {
-  node.anonymous = true
-
-  for (const ancestor of ancestors) {
-    if (node.type === 'MemberExpression' && ancestor.type === 'CallExpression') return
-    if (hasIdent(ancestor)) node.anonymous = false
-    if (hasScope(ancestor)) return
-  }
-
-  nodes.push(node)
-}
-
-const lineNumbers = (source, offset = 1, lines = source.split('\n').length.toString().length) =>
-  source.replace(/^/gm, () => `${offset++}:`.padStart(lines + 3))
-
 try {
   const input = process.argv[2]
   const file = path.resolve(input)
@@ -105,54 +91,68 @@ try {
     const compile = bundlers[bundler]
     const code = await compile(file)
 
+    const lines = lineNumbers(code).split('\n')
+    const errors = []
+
+    let maxLine = 0
+    let maxColumn = 0
+
+    function filterEffects(node, _state, ancestors) {
+      let anonymous = true
+
+      for (const ancestor of ancestors) {
+        if (node.type === 'MemberExpression' && ancestor.type === 'CallExpression') return
+        if (hasIdent(ancestor)) anonymous = false
+        if (hasScope(ancestor)) return
+      }
+
+      let error = null
+
+      if (node.type === 'CallExpression' || node.type === 'NewExpression') {
+        const type = node.type === 'CallExpression' ? 'function' : 'class'
+        error = anonymous
+          ? `Anonymous ${type} invocations must be assigned a value and annotated with /* @__PURE__ */!`
+          : `Top-level ${type} invocations must be annotated with /* @__PURE__ */!`
+      } else if (node.type === 'MemberExpression') {
+        error = 'Top-level member expressions may call code! Prefer destructuring or IIFE.'
+      }
+
+      if (error) {
+        const { line, column } = node.loc.start
+        lines[line - 1] = '>' + lines[line - 1].slice(1)
+        maxLine = Math.max(maxLine, line.toString().length)
+        maxColumn = Math.max(maxColumn, column.toString().length)
+        errors.push({ line, column, error })
+      }
+    }
+
     const ast = acorn.parse(code, {
       ecmaVersion: 'latest',
       sourceType: 'module',
       locations: true,
     })
-
     walk.ancestor(ast, {
       CallExpression: filterEffects,
       NewExpression: filterEffects,
       MemberExpression: filterEffects,
     })
 
-    if (nodes.length) {
-      const lines = lineNumbers(code).split('\n')
-      const errors = []
-
-      for (const node of nodes) {
-        let error = null
-
-        if (node.type === 'CallExpression' || node.type === 'NewExpression') {
-          const type = node.type === 'CallExpression' ? 'function' : 'class'
-          error = node.anonymous
-            ? `Anonymous ${type} invocations must be assigned a value and annotated with /* @__PURE__ */!`
-            : `Top-level ${type} invocations must be annotated with /* @__PURE__ */!`
-        } else if (node.type === 'MemberExpression') {
-          error = 'Top-level member expressions may call code! Prefer destructuring or IIFE.'
-        }
-
-        if (error) {
-          const { line, column } = node.loc.start
-          lines[line - 1] = '>' + lines[line - 1].slice(1)
-          errors.push(`${line}:${column} ${error}`)
-        }
-      }
-
+    if (errors.length) {
       console.log(lines.join('\n'))
-      for (const error of errors) {
-        console.error(error)
+      for (const { line, column, error } of errors) {
+        const _line = line.toString().padStart(maxLine)
+        const _column = column.toString().padEnd(maxColumn)
+        console.error(`${_line}:${_column} ${error}`)
       }
 
-      throw `Couldn't tree-shake ${input} with ${bundler}!`
+      throw `Couldn't tree-shake "${input}" with ${bundler}!`
     }
   }
 
   const formatter = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' })
   const targets = formatter.format(Object.keys(bundlers))
 
-  console.info(`Successfully tree-shaken ${input} with ${targets}!`)
+  console.info(`Successfully tree-shaken "${input}" with ${targets}!`)
 } catch (e) {
   console.error(e)
   process.exit(1)

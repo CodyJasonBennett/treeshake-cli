@@ -16,6 +16,12 @@
   "repository": "https://github.com/CodyJasonBennett/treeshake-cli",
   "license": "MIT",
   "type": "module",
+  "files": [
+    "index.js",
+    "package.json",
+    "LICENSE",
+    "README.md"
+  ],
   "bin": {
     "treeshake": "index.js"
   },
