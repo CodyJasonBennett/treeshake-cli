@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import * as path from 'node:path'
-import * as fs from 'node:fs'
 import { rollup } from 'rollup'
 import virtual from '@rollup/plugin-virtual'
 import MemoryFS from 'memory-fs'
 import webpack from 'webpack'
 import * as esbuild from 'esbuild'
 import * as acorn from 'acorn'
+import * as walk from 'acorn-walk'
 
 const bundlers = {
   async Rollup(file) {
@@ -62,41 +62,35 @@ const bundlers = {
   },
 }
 
-function filterEffects(node, nodes = []) {
-  if (!node) return
+const hasIdent = (node) => node.type === 'AssignmentExpression' || node.type === 'PropertyDefinition'
 
-  if (node.type === 'Block' && (node.value.trim() === '@__PURE__' || node.value.trim() === '#__PURE__')) {
-    nodes.push(node)
-  } else if (node.type === 'CallExpression' || node.type === 'NewExpression') {
-    nodes.push(node)
-    for (const argument of node.arguments) {
-      filterEffects(argument, nodes)
-    }
-  } else if (node.type === 'MemberExpression') {
-    nodes.push(node)
-  } else if (node.type === 'ExpressionStatement') {
-    filterEffects(node.expression, nodes)
-  } else if (node.type === 'VariableDeclaration') {
-    for (const declaration of node.declarations) {
-      filterEffects(declaration, nodes)
-    }
-  } else if (node.type === 'VariableDeclarator') {
-    filterEffects(node.init, nodes)
-  } else if (node.type === 'AssignmentExpression' || node.type === 'BinaryExpression') {
-    filterEffects(node.left, nodes)
-    filterEffects(node.right, nodes)
-  } else if (node.type === 'ObjectExpression') {
-    for (const property of node.properties) {
-      filterEffects(property, nodes)
-    }
-  } else if (node.type === 'Property') {
-    filterEffects(node.key, nodes)
-    filterEffects(node.value, nodes)
-  } else if (node.type === 'ArrayExpression') {
-    for (const element of node.elements) {
-      filterEffects(element, nodes)
-    }
+function hasScope(node) {
+  switch (node.type) {
+    case 'FunctionDeclaration':
+    case 'FunctionExpression':
+    case 'ObjectMethod':
+    case 'ArrowFunctionExpression':
+    case 'ClassMethod':
+    case 'ClassPrivateMethod':
+      return true
+    case 'PropertyDefinition':
+      return !node.static
+    default:
+      return false
   }
+}
+
+const nodes = []
+
+function filterEffects(node, _state, ancestors) {
+  node.anonymous = true
+
+  for (const ancestor of ancestors) {
+    if (hasIdent(ancestor)) node.anonymous = false
+    if (hasScope(ancestor)) return
+  }
+
+  nodes.push(node)
 }
 
 const lineNumbers = (source, offset = 1) => source.replace(/^/gm, () => `  ${offset++}:`)
@@ -115,40 +109,41 @@ try {
       locations: true,
     })
 
-    for (const node of ast.body) {
-      if (node.type !== 'ImportDeclaration') {
-        const nodes = []
-        for (const node of ast.body) {
-          filterEffects(node, nodes)
+    walk.ancestor(ast, {
+      CallExpression: filterEffects,
+      NewExpression: filterEffects,
+      MemberExpression: filterEffects
+    })
+
+    if (nodes.length) {
+      const lines = lineNumbers(code).split('\n')
+      const errors = []
+
+      for (const node of nodes) {
+        let error = null
+
+        if (node.type === 'CallExpression' || node.type === 'NewExpression') {
+          const type = node.type === 'CallExpression' ? 'function' : 'class'
+          error = node.anonymous
+           ? `Anonymous ${type} invocations must be assigned a value and annotated with /* @__PURE__ */!`
+           : `Top-level ${type} invocations must be annotated with /* @__PURE__ */!`
+        } else if (node.type === 'MemberExpression') {
+          error = 'Top-level member expressions may call code! Prefer destructuring or IIFE.'
         }
 
-        const lines = lineNumbers(code).split('\n')
-        const errors = []
-
-        for (const node of nodes) {
-          let error = null
-
-          if (node.type === 'CallExpression' || node.type === 'NewExpression') {
-            const type = node.type === 'CallExpression' ? 'function' : 'class'
-            error = `Top-level ${type} invocations must be annotated with /* @__PURE__ */!`
-          } else if (node.type === 'MemberExpression') {
-            error = 'Top-level member expressions may call expressive code! Prefer destructuring.'
-          }
-
-          if (error) {
-            const { line, column } = node.loc.start
-            lines[line - 1] = '>' + lines[line - 1].slice(1)
-            errors.push(`${line}:${column} ${error}`)
-          }
+        if (error) {
+          const { line, column } = node.loc.start
+          lines[line - 1] = '>' + lines[line - 1].slice(1)
+          errors.push(`${line}:${column} ${error}`)
         }
-
-        console.log(lines.join('\n'))
-        for (const error of errors) {
-          console.error(error)
-        }
-
-        throw `Couldn't tree-shake ${input} with ${bundler}!`
       }
+
+      console.log(lines.join('\n'))
+      for (const error of errors) {
+        console.error(error)
+      }
+
+      throw `Couldn't tree-shake ${input} with ${bundler}!`
     }
   }
 
