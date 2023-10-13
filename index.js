@@ -86,6 +86,7 @@ function filterEffects(node, _state, ancestors) {
   node.anonymous = true
 
   for (const ancestor of ancestors) {
+    if (node.type === 'MemberExpression' && ancestor.type === 'CallExpression') return
     if (hasIdent(ancestor)) node.anonymous = false
     if (hasScope(ancestor)) return
   }
@@ -112,7 +113,7 @@ try {
     walk.ancestor(ast, {
       CallExpression: filterEffects,
       NewExpression: filterEffects,
-      MemberExpression: filterEffects
+      MemberExpression: filterEffects,
     })
 
     if (nodes.length) {
@@ -125,8 +126,8 @@ try {
         if (node.type === 'CallExpression' || node.type === 'NewExpression') {
           const type = node.type === 'CallExpression' ? 'function' : 'class'
           error = node.anonymous
-           ? `Anonymous ${type} invocations must be assigned a value and annotated with /* @__PURE__ */!`
-           : `Top-level ${type} invocations must be annotated with /* @__PURE__ */!`
+            ? `Anonymous ${type} invocations must be assigned a value and annotated with /* @__PURE__ */!`
+            : `Top-level ${type} invocations must be annotated with /* @__PURE__ */!`
         } else if (node.type === 'MemberExpression') {
           error = 'Top-level member expressions may call code! Prefer destructuring or IIFE.'
         }
