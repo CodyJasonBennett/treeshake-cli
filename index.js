@@ -94,7 +94,8 @@ function filterEffects(node, _state, ancestors) {
   nodes.push(node)
 }
 
-const lineNumbers = (source, offset = 1) => source.replace(/^/gm, () => `  ${offset++}:`)
+const lineNumbers = (source, offset = 1, lines = source.split('\n').length.toString().length) =>
+  source.replace(/^/gm, () => `${offset++}:`.padStart(lines + 3))
 
 try {
   const input = process.argv[2]
