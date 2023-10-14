@@ -87,8 +87,7 @@ try {
   const input = process.argv[2]
   const file = path.resolve(input)
 
-  for (const bundler in bundlers) {
-    const compile = bundlers[bundler]
+  await Promise.all(Object.entries(bundlers).map(async ([bundler, compile]) => {
     const code = await compile(file)
 
     const lines = lineNumbers(code).split('\n')
@@ -147,7 +146,7 @@ try {
 
       throw `Couldn't tree-shake "${input}" with ${bundler}!`
     }
-  }
+  }))
 
   const formatter = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' })
   const targets = formatter.format(Object.keys(bundlers))
