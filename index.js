@@ -87,66 +87,68 @@ try {
   const input = process.argv[2]
   const file = path.resolve(input)
 
-  await Promise.all(Object.entries(bundlers).map(async ([bundler, compile]) => {
-    const code = await compile(file)
+  await Promise.all(
+    Object.entries(bundlers).map(async ([bundler, compile]) => {
+      const code = await compile(file)
 
-    const lines = lineNumbers(code).split('\n')
-    const errors = []
+      const lines = lineNumbers(code).split('\n')
+      const errors = []
 
-    let maxLine = 0
-    let maxColumn = 0
+      let maxLine = 0
+      let maxColumn = 0
 
-    function filterEffects(node, _state, ancestors) {
-      let anonymous = true
+      function filterEffects(node, _state, ancestors) {
+        let anonymous = true
 
-      for (const ancestor of ancestors) {
-        if (node.type === 'MemberExpression' && ancestor.type === 'CallExpression') return
-        if (hasIdent(ancestor)) anonymous = false
-        if (hasScope(ancestor)) return
+        for (const ancestor of ancestors) {
+          if (node.type === 'MemberExpression' && ancestor.type === 'CallExpression') return
+          if (hasIdent(ancestor)) anonymous = false
+          if (hasScope(ancestor)) return
+        }
+
+        let error = null
+
+        if (node.type === 'CallExpression' || node.type === 'NewExpression') {
+          const type = node.type === 'CallExpression' ? 'function' : 'class'
+          error = anonymous
+            ? `Anonymous ${type} invocations must be assigned a value and annotated with /* @__PURE__ */!`
+            : `Top-level ${type} invocations must be annotated with /* @__PURE__ */!`
+        } else if (node.type === 'MemberExpression') {
+          error = 'Top-level member expressions may call code! Prefer destructuring or IIFE.'
+        }
+
+        if (error) {
+          const { line, column } = node.loc.start
+          lines[line - 1] = '>' + lines[line - 1].slice(1)
+          maxLine = Math.max(maxLine, line.toString().length)
+          maxColumn = Math.max(maxColumn, column.toString().length)
+          errors.push({ line, column, error })
+        }
       }
 
-      let error = null
+      const ast = acorn.parse(code, {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+        locations: true,
+      })
+      walk.ancestor(ast, {
+        CallExpression: filterEffects,
+        NewExpression: filterEffects,
+        MemberExpression: filterEffects,
+      })
 
-      if (node.type === 'CallExpression' || node.type === 'NewExpression') {
-        const type = node.type === 'CallExpression' ? 'function' : 'class'
-        error = anonymous
-          ? `Anonymous ${type} invocations must be assigned a value and annotated with /* @__PURE__ */!`
-          : `Top-level ${type} invocations must be annotated with /* @__PURE__ */!`
-      } else if (node.type === 'MemberExpression') {
-        error = 'Top-level member expressions may call code! Prefer destructuring or IIFE.'
+      if (errors.length) {
+        console.log(lines.join('\n'))
+        for (const { line, column, error } of errors) {
+          const _line = line.toString().padStart(maxLine)
+          const _column = column.toString().padEnd(maxColumn)
+          console.error(`${_line}:${_column} ${error}`)
+        }
+
+        throw `Couldn't tree-shake "${input}" with ${bundler}!`
       }
-
-      if (error) {
-        const { line, column } = node.loc.start
-        lines[line - 1] = '>' + lines[line - 1].slice(1)
-        maxLine = Math.max(maxLine, line.toString().length)
-        maxColumn = Math.max(maxColumn, column.toString().length)
-        errors.push({ line, column, error })
-      }
-    }
-
-    const ast = acorn.parse(code, {
-      ecmaVersion: 'latest',
-      sourceType: 'module',
-      locations: true,
-    })
-    walk.ancestor(ast, {
-      CallExpression: filterEffects,
-      NewExpression: filterEffects,
-      MemberExpression: filterEffects,
-    })
-
-    if (errors.length) {
-      console.log(lines.join('\n'))
-      for (const { line, column, error } of errors) {
-        const _line = line.toString().padStart(maxLine)
-        const _column = column.toString().padEnd(maxColumn)
-        console.error(`${_line}:${_column} ${error}`)
-      }
-
-      throw `Couldn't tree-shake "${input}" with ${bundler}!`
-    }
-  }))
+    }),
+  )
 
   const formatter = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' })
   const targets = formatter.format(Object.keys(bundlers))
