@@ -83,6 +83,23 @@ function hasScope(node) {
   }
 }
 
+function hasChosenBundler(argument, bundler) {
+  if (
+    argument.includes('r') && bundler === 'Rollup' ||
+    argument.includes('w') && bundler === 'Webpack' ||
+    argument.includes('e') && bundler === 'ESBuild'
+  ) {
+    return true
+  } else {
+    return false
+  }
+}
+
+// Remove bundlers that are not chosen
+for (const bundler in bundlers) {
+  if(process.argv[3] && !hasChosenBundler(process.argv[3], bundler)) delete bundlers[bundler]
+}
+
 try {
   const input = process.argv[2]
   const file = path.resolve(input)
